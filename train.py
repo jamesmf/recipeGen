@@ -11,6 +11,7 @@ from keras.layers import MaxPooling1D, Add, Dropout
 from keras.models import Model, load_model
 from keras.callbacks import EarlyStopping, TensorBoard, ModelCheckpoint
 from utilities import Preprocessor, charsToVec
+from sklearn.utils import shuffle
 
 def readInRecipes(fname):
     with open(fname, 'r') as f:
@@ -28,12 +29,18 @@ def readInRecipes(fname):
 
     
 
-def getRecipeBatch(recs, prep, numPer):
+def getRecipeBatch(recs, prep, numPer, genOrNot):
     shape1 = len(recs)*numPer
+
+    # we want prep.predDepth outputs, depending on how many chars we pred
     ys = []
     for i in range(0, prep.predDepth):
         ys.append(np.zeros((shape1, len(prep.charRev))))
+    # we also want binary outputs for seenBefore and genOrNot
     ys.append(np.zeros((shape1, 1)))
+    ys.append(np.zeros((shape1, 1)))
+
+    # initialize the X matrices to save memory
     X1 = np.zeros((shape1, prep.maxLen))
     X2 = np.zeros((shape1, prep.maxLenHist))
     for n, recipe in enumerate(recs):
@@ -53,9 +60,10 @@ def getRecipeBatch(recs, prep, numPer):
                     nextChar = prep.charDict['$']
                 ys[i][n2, nextChar] = 1
             ys[prep.predDepth][n2] = getSeenBefore(recipe, endInd)
+            ys[prep.predDepth+1][n2] = genOrNot[n]
             X1[n2, :] = x1
             X2[n2, :] = x2
-    return X1, X2, ys
+    return [X1, X2], ys
 
 
 def getSeenBefore(rec, endInd):
@@ -73,16 +81,35 @@ def getSeenBefore(rec, endInd):
         c = rec[:endInd].count(word)
         return (c > 0)*1
 
-def recipeGen(recs, prep, batchSize, numPer=10):
+def recipeGen(recs, prep, batchSize, genOrNot, numPer=10):
     while True:
         ind = 0
-        X1, X2, y = getRecipeBatch(recs, prep, numPer)
+        X, y = getRecipeBatch(recs, prep, numPer, genOrNot)
+        X = shuffle(*X, random_state=0)
+        y = shuffle(*y, random_state=0)
+        X1, X2 = X
         while ind < X1.shape[0]:
             ind2 = ind + batchSize
             yslice = [i[ind:ind2] for i in y]
             yield ([X1[ind:ind2], X2[ind:ind2]], yslice)
             ind += batchSize
 
+
+def generateRecipes(recipesTrain, model, prep, num=50000):
+    newRecipes = []
+    if num < len(recipesTrain):
+        recs = np.random.choice(recipesTrain, num)
+    else:
+        recs = recipesTrain
+    for n, recipe in enumerate(recs):
+        name = prep.name_from_text(recipe)
+        rec = prep.get_recipe(name, model, method="topN", N=10,
+                              temperature=0.5)
+        newRecipes.append(rec)
+        if n % 100 == 0:
+            print(n)
+    print(newRecipes[0])
+    return newRecipes
 
 def defineModel(prep):
     sharedSize = 128
@@ -161,8 +188,12 @@ def defineModel(prep):
         losses[layerName] = 'categorical_crossentropy'
     outputs.append(Dense(1, name="seen_before",
                          activation='sigmoid')(added))
+    outputs.append(Dense(1, name="generated_or_real",
+                         activation="sigmoid")(hist))
     losses['seen_before'] = 'binary_crossentropy'
-    lossWeights['seen_before'] = 1
+    lossWeights['seen_before'] = 2
+    losses['generated_or_real'] = 'binary_crossentropy'
+    lossWeights['generated_or_real'] = 2
 
     model = Model([charInp, histInp], outputs)
     model.compile('adam', loss=losses,
@@ -171,25 +202,44 @@ def defineModel(prep):
 
 np.random.seed(0)
 batchSize = 64
-numPer = 10
+numPer = 4
+metaEpochs = 2
 recipesTrain, recipesVal, prep = readInRecipes("data/allrecipes.txt")
-X1val, X2val, yval = getRecipeBatch(recipesTrain, prep, numPer)
 
+recipesTrain = recipesTrain[:100]
 
-callbacks = [
-    EarlyStopping(patience=16, monitor='val_char_0_loss'),
-    ModelCheckpoint(filepath='models/charLevel.cnn', verbose=1,
-                    save_best_only=True, monitor='val_char_0_loss'),
-    TensorBoard() #  not all of the options work w/ TB+keras
-]
-
+Xval, yval = getRecipeBatch(recipesVal, prep, numPer,
+                            np.zeros(len(recipesVal)))
 model = defineModel(prep)
-model.fit_generator(recipeGen(recipesTrain, prep, batchSize, numPer),
-                    steps_per_epoch=numPer*int(len(recipesTrain)/batchSize)+1,
-                    epochs=1000,
-                    callbacks=callbacks,
-                    validation_data=([X1val, X2val], yval))
 with open("models/prep.pkl", 'wb') as f:
     pickle.dump(prep, f)
 
-model = load_model('models/charLevel.cnn')
+
+for metaEpoch in range(0, metaEpochs):
+
+    # set up early stopping each time we train a new model
+    callbacks = [
+        EarlyStopping(patience=16, monitor='val_loss'),
+        ModelCheckpoint(filepath='models/charLevel_'+str(metaEpoch)+'.cnn',
+                        verbose=1, save_best_only=True,
+                        monitor='val_loss'),
+        TensorBoard() #  not all of the options work w/ TB+keras
+    ]
+    # the first time we are just training the generator, no discrim
+    if metaEpoch == 0:
+        generatedRecipes = []
+        genOrNot = np.ones(len(recipesTrain))
+    else:
+        generatedRecipes = generateRecipes(recipesTrain, model, prep)
+        genOrNot = np.zeros(len(recipesTrain)).tolist()
+        genOrNot += np.ones(len(generatedRecipes)).tolist()
+
+    recipesAll = recipesTrain+generatedRecipes
+    model.fit_generator(recipeGen(recipesAll, prep, batchSize, genOrNot,
+                                  numPer=numPer),
+                        steps_per_epoch=numPer*int(len(recipesAll)/batchSize)+1,
+                        epochs=10,
+                        callbacks=callbacks,
+                        validation_data=(Xval, yval))
+    
+    model = load_model('models/charLevel_'+str(metaEpoch)+'.cnn')

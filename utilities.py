@@ -1,5 +1,6 @@
 from keras.preprocessing.sequence import pad_sequences
 import numpy as np
+import re
 
 
 def charsToVec(recipe, start, end, l, charDict):
@@ -28,8 +29,10 @@ def addOneChar(prep, x, char):
     return np.append(x[1:], val)
 
 class Preprocessor():
+
+    nameRegex = re.compile("name:\n(.+)?\n")
     
-    def __init__(self, maxLen=30, maxLenHist=600, predDepth=3):
+    def __init__(self, maxLen=30, maxLenHist=600, predDepth=5):
         self.maxLen = maxLen
         self.maxLenHist = maxLenHist
         self.charDict = {'': 0}
@@ -52,22 +55,31 @@ class Preprocessor():
     def get_recipe_top_N(self, rec, model, kwargs):
         N = kwargs["N"]
         T = kwargs["temperature"]
+        x2 = None
         while len(rec) < 2000 and rec[-1] != '$':
-            x1 = charsToVec(rec, 0, len(rec),
-                    self.maxLen, self.charDict)
-            x2 = charsToVec(rec, 0, len(rec),
-                    self.maxLenHist, self.charDict)
+            if x2 is None:
+                x2 = charsToVec(rec, 0, len(rec),
+                                self.maxLenHist, self.charDict)
+            x1 = x2[-self.maxLen:]
+            
             p = model.predict([np.array([x1]),
                                np.array([x2])])[0][0]
             part = np.argpartition(-p, N)[:N]
             probs = [p[i] for i in part]
-            print(part, probs)
             ind = self.sample(probs, temperature=T)
             nextInd = part[ind]
             nextChar = self.charRev[nextInd]
-            print(nextInd, nextChar)
+#            print(nextInd, nextChar)
             rec += nextChar
-            print(rec)
+            x2 = np.append(x2, [nextInd])[1:]
+#            print(rec)
+        return rec
+
+    def name_from_text(self, txt):
+        name = self.nameRegex.search(txt)
+        name = name.group(1)
+        return name
+
 
 def get_recipe_beam(prep, rec, model, kwargs):
     beamWidths = kwargs["beamWidth"]

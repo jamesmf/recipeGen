@@ -12,6 +12,8 @@ from keras.models import Model, load_model
 from keras.callbacks import EarlyStopping, TensorBoard, ModelCheckpoint
 from utilities import Preprocessor, charsToVec
 from sklearn.utils import shuffle
+from keras import backend as K
+import time
 
 def readInRecipes(fname):
     with open(fname, 'r') as f:
@@ -95,19 +97,21 @@ def recipeGen(recs, prep, batchSize, genOrNot, numPer=10):
             ind += batchSize
 
 
-def generateRecipes(recipesTrain, model, prep, num=50000):
+def generateRecipes(recipesTrain, model, prep, num=11):
     newRecipes = []
     if num < len(recipesTrain):
         recs = np.random.choice(recipesTrain, num)
     else:
         recs = recipesTrain
+    t1 = time.time()
     for n, recipe in enumerate(recs):
         name = prep.name_from_text(recipe)
         rec = prep.get_recipe(name, model, method="topN", N=10,
                               temperature=0.5)
         newRecipes.append(rec)
-        if n % 100 == 0:
-            print(n)
+        if n % 10 == 0:
+            t2 = time.time()
+            print("{} recipes in {} s".format(str(n), str(t2-t1)))
     print(newRecipes[0])
     return newRecipes
 
@@ -203,10 +207,10 @@ def defineModel(prep):
 np.random.seed(0)
 batchSize = 64
 numPer = 4
-metaEpochs = 2
+metaEpochs = 1
 recipesTrain, recipesVal, prep = readInRecipes("data/allrecipes.txt")
 
-recipesTrain = recipesTrain[:100]
+recipesTrain = recipesTrain[:1000]
 
 Xval, yval = getRecipeBatch(recipesVal, prep, numPer,
                             np.zeros(len(recipesVal)))
@@ -226,20 +230,22 @@ for metaEpoch in range(0, metaEpochs):
         TensorBoard() #  not all of the options work w/ TB+keras
     ]
     # the first time we are just training the generator, no discrim
-    if metaEpoch == 0:
+    if metaEpoch == -1:
         generatedRecipes = []
         genOrNot = np.ones(len(recipesTrain))
     else:
-        generatedRecipes = generateRecipes(recipesTrain, model, prep)
+        l = model.get_layer("char_0")
+        func = K.function(model.input, [l.output])
+        generatedRecipes = generateRecipes(recipesTrain, func, prep)
         genOrNot = np.zeros(len(recipesTrain)).tolist()
         genOrNot += np.ones(len(generatedRecipes)).tolist()
 
-    recipesAll = recipesTrain+generatedRecipes
-    model.fit_generator(recipeGen(recipesAll, prep, batchSize, genOrNot,
-                                  numPer=numPer),
-                        steps_per_epoch=numPer*int(len(recipesAll)/batchSize)+1,
-                        epochs=10,
-                        callbacks=callbacks,
-                        validation_data=(Xval, yval))
-    
-    model = load_model('models/charLevel_'+str(metaEpoch)+'.cnn')
+#    recipesAll = recipesTrain+generatedRecipes
+#    model.fit_generator(recipeGen(recipesAll, prep, batchSize, genOrNot,
+#                                  numPer=numPer),
+#                        steps_per_epoch=numPer*int(len(recipesAll)/batchSize)+1,
+#                        epochs=10,
+#                        callbacks=callbacks,
+#                        validation_data=(Xval, yval))
+#    
+#    model = load_model('models/charLevel_'+str(metaEpoch)+'.cnn')

@@ -1,6 +1,7 @@
 from keras.preprocessing.sequence import pad_sequences
 import numpy as np
 import re
+import time
 
 
 def charsToVec(recipe, start, end, l, charDict):
@@ -52,18 +53,18 @@ class Preprocessor():
         if method == "topN":
             return self.get_recipe_top_N(s, model, kwargs)
 
-    def get_recipe_top_N(self, rec, model, kwargs):
+    def get_recipe_top_N(self, rec, func, kwargs):
         N = kwargs["N"]
         T = kwargs["temperature"]
         x2 = None
-        while len(rec) < 2000 and rec[-1] != '$':
+        while len(rec) < 800 and rec[-1] != '$':
             if x2 is None:
                 x2 = charsToVec(rec, 0, len(rec),
                                 self.maxLenHist, self.charDict)
             x1 = x2[-self.maxLen:]
             
-            p = model.predict([np.array([x1]),
-                               np.array([x2])])[0][0]
+            p = func([np.array([x1,x1,x1,x1,x1]), np.array([x2,x2,x2,x2,x2])])[0][0]
+#            p = np.random.rand(len(self.charDict))
             part = np.argpartition(-p, N)[:N]
             probs = [p[i] for i in part]
             ind = self.sample(probs, temperature=T)

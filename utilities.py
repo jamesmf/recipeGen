@@ -79,7 +79,7 @@ class Preprocessor():
 
     nameRegex = re.compile("name:\n(.+)?\n")
     
-    def __init__(self, maxLen=30, maxLenHist=600, predDepth=5):
+    def __init__(self, maxLen=30, maxLenHist=300, predDepth=5):
         self.maxLen = maxLen
         self.maxLenHist = maxLenHist
         self.charDict = {'': 0}
@@ -477,12 +477,7 @@ def defineModel(prep):
                      activation='relu', name='conv_hist4')
     conv5_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=1,
                      activation='relu', name='conv_char4')
-    conv6_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=8,
-                     activation='relu', name='conv_hist5')
-    conv6_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=1,
-                     activation='relu', name='conv_char5')
-    conv7_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=8,
-                     activation='relu', name='conv_hist6')
+
     mp = MaxPooling1D(pool_size=4, strides=2)
 
     char2 = conv2(charEmb)
@@ -498,17 +493,11 @@ def defineModel(prep):
     hist = Add(name='shortcut_hist')([hist2, hist])
     hist = mp(hist)
 
-    char = conv5_c(char)
-    hist = conv5_h(hist)
-
-    char = Dropout(0.5)(conv6_c(char))
+    char = Dropout(0.5)(conv5_c(char))
     char = BatchNormalization()(char)
-    hist = Dropout(0.5)(conv6_h(hist))
+    hist = Dropout(0.5)(conv5_h(hist))
     hist = BatchNormalization()(hist)
-    hist = mp(hist)
-    
-    hist = conv7_h(hist)
-    hist = BatchNormalization()(hist)
+
     # final global max pooling layer keeps the # of params low
     hist = GlobalMaxPooling1D()(hist)
     char = GlobalMaxPooling1D()(char)

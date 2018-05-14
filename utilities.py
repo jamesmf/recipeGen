@@ -509,13 +509,11 @@ def defineModel(prep):
     
     hist = conv7_h(hist)
     hist = BatchNormalization()(hist)
-    # final global max pooling layer for the hist side of things
+    # final global max pooling layer keeps the # of params low
     hist = GlobalMaxPooling1D()(hist)
-    
-    char = Flatten()(char)
+    char = GlobalMaxPooling1D()(char)
 
     char = Dense(sharedSize, activation='relu')(char)
-    
     hist = Dense(sharedSize, activation='relu')(hist)
 
     # merge
@@ -536,8 +534,10 @@ def defineModel(prep):
     lossWeights['seen_before'] = 2
 
     model = Model([charInp, histInp], outputs)
-    model.compile('adam', loss=losses,
+    adam = Adam(lr=0.005)
+    model.compile(adam, loss=losses,
                   loss_weights=lossWeights)
+    print(model.summary())
     return model
 
 

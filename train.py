@@ -18,7 +18,7 @@ np.random.seed(0)
 batchSize = 128
 numPer = 4
 epochs = 3
-logID = util.get_log_id()
+logID = util.get_log_id("logs")
 util.set_up_logging()
 model_dir = "models/model_{}/".format(logID)
 

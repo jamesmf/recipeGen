@@ -2,19 +2,25 @@ from keras.preprocessing.sequence import pad_sequences
 from keras.layers import Input, Dense, Conv1D, Embedding, Flatten, GlobalMaxPooling1D
 from keras.layers import MaxPooling1D, Add, Dropout, BatchNormalization
 from keras.models import Model, load_model
+from keras.optimizers import Adam
 from sklearn.utils import shuffle
 from keras import backend as K
 import time
+import os
 import numpy as np
 import re
 
 
-def get_log_id():
+def get_log_id(log_dir):
     """
     Increments the maximum log_ID by one and returns it. Finds log_id based
     on the directory names within the logging directory
     """
-    return 1
+    patt = re.compile(r"\d+")
+    ls = os.listdir(log_dir)
+    ids = [patt.match(i).group(0) for i in filter(patt.match, ls)]
+    log_ids = [int(i) for i in ids]
+    return np.max(log_ids)+1
 
 
 def set_up_logging():
@@ -449,7 +455,7 @@ def defineModel(prep):
     Returns:
         model (Model): keras Model compiled
     """
-    sharedSize = 128
+    sharedSize = 64
     embeddingSize = 64
     outSize = len(prep.charDict)
     charInp = Input(shape=(prep.maxLen,))
@@ -471,14 +477,12 @@ def defineModel(prep):
                      activation='relu', name='conv_hist4')
     conv5_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=1,
                      activation='relu', name='conv_char4')
-    conv6_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=1,
+    conv6_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=8,
                      activation='relu', name='conv_hist5')
     conv6_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=1,
                      activation='relu', name='conv_char5')
-    conv7_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=1,
+    conv7_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=8,
                      activation='relu', name='conv_hist6')
-    conv8_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=1,
-                     activation='relu', name='conv_hist7')
     mp = MaxPooling1D(pool_size=4, strides=2)
 
     char2 = conv2(charEmb)
@@ -497,21 +501,19 @@ def defineModel(prep):
     char = conv5_c(char)
     hist = conv5_h(hist)
 
-    char = Dropout(0.25)(conv6_c(char))
+    char = Dropout(0.5)(conv6_c(char))
     char = BatchNormalization()(char)
-    hist = Dropout(0.25)(conv6_h(hist))
+    hist = Dropout(0.5)(conv6_h(hist))
     hist = BatchNormalization()(hist)
     hist = mp(hist)
     
     hist = conv7_h(hist)
     hist = BatchNormalization()(hist)
-    hist = conv8_h(hist)
     # final global max pooling layer for the hist side of things
     hist = GlobalMaxPooling1D()(hist)
     
     char = Flatten()(char)
 
-    char = Dense(sharedSize, activation='relu')(char)
     char = Dense(sharedSize, activation='relu')(char)
     
     hist = Dense(sharedSize, activation='relu')(hist)

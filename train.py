@@ -7,6 +7,7 @@ Created on Thu Jan 25 23:30:26 2018
 import pickle
 import numpy as np
 import os
+import json
 from keras.models import Model, load_model
 from keras.callbacks import EarlyStopping, TensorBoard, ModelCheckpoint
 import utilities as util
@@ -16,13 +17,13 @@ from utilities import recipeGen, generateRecipes, defineModel
 
 np.random.seed(0)
 batchSize = 128
-numPer = 4
-epochs = 3
+numPer = 10
+epochs = 5
 logID = util.get_log_id("logs")
 util.set_up_logging()
 model_dir = "models/model_{}/".format(logID)
 
-recipesTrain, recipesVal, prep = readInRecipes("data/allrecipes.txt")
+recipesTrain, recipesVal, prep = readInRecipes()
 
 #recipesTrain = recipesTrain[:1000]
 #recipesVal = recipesVal[:1000]
@@ -32,7 +33,15 @@ model = defineModel(prep)
 os.makedirs(model_dir)
 with open("{}prep.pkl".format(model_dir), 'wb') as f:
     pickle.dump(prep, f)
-
+# save json with the reqs for sampling
+prepjson = {}
+with open("{}prep.json".format(model_dir), 'wb') as f:
+    prepjson["charRev"] = prep.charRev
+    prepjson["charMap"] = prep.charDict
+    prepjson["x1_len"] = prep.maxLen
+    prepjson["x2_len"] = prep.maxLenHist
+    f.write(json.dumps(prepjson))
+    
 for metaEpoch in range(0, epochs):
 
     # set up early stopping each time we train a new model
@@ -55,6 +64,7 @@ for metaEpoch in range(0, epochs):
     # RUN THE DISCRIMINATOR PORTION    
     model = load_model(model_dir+'charLevel_'+str(metaEpoch)+'.cnn')
     mod = Model(model.input, [model.get_layer("char_0").output])
+    mod.save('{}only_char_0.cnn'.format(model_dir))
     func = mod.predict
 
     # get some validation data

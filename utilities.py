@@ -84,7 +84,7 @@ class Preprocessor():
         self.maxLenHist = maxLenHist
         self.charDict = {'': 0}
         self.predDepth = predDepth
-        self.startString = "\nname:\n{}\n\ningredients:\n\n"
+        self.startString = "name:\n{}\n\ningredients:\n\n"
 
     def sample(self, a, temperature=1.0):
         """
@@ -249,25 +249,22 @@ def get_recipe_beam(prep, rec, model, kwargs):
 
 
 
-def readInRecipes(fname):
+def readInRecipes():
     """
-    Reads in a file with recipes formatted as specified in the README. Splits
-    them into Train/Dev (Validation) set and initializes a Preprocessor.
-    Args:
-        fname (str): name of the file containing recipes
+    Reads in two files with recipes formatted as specified in the README:
+    Train/Dev (Validation) set. Initializes a Preprocessor.
+
     Returns:
         recipesTrain (list): list of recipe strings in the training set
         recipesVal (list): list of recipe strings in the dev/val set
         prep (Preprocessor): Preprocessor object 'fit' to the recipe chars
     """
-    with open(fname, 'r') as f:
-        recipes = [i+'$$$$' for i in f.read().strip().split('$$$$')]
+    with open("data/recipesTrain.txt", 'r') as f:
+        recipesTrain = [i+'$$$$' for i in f.read().strip().split('$$$$') if i != '']
+    with open("data/recipesDev.txt", 'r') as f:
+        recipesVal = [i+'$$$$' for i in f.read().strip().split('$$$$') if i != '']
     prep = Preprocessor()
-    np.random.shuffle(recipes)
-    numTrain = int(0.9*len(recipes))
-    recipesTrain = recipes[:numTrain]
-    recipesVal = recipes[numTrain:]
-    chars = set([c for r in recipes for c in r])
+    chars = set([c for r in recipesTrain+recipesVal for c in r])
     for c in chars:
         prep.charDict[c] = len(prep.charDict)
     prep.charRev = {v: k for k,v in prep.charDict.items()}
@@ -434,7 +431,7 @@ def generateRecipes(recipesTrain, func, prep, num=10000):
     else:
         recs = recipesTrain
     t1 = time.time()
-    names = [prep.name_from_text(i) for i in recs]
+    names = [prep.startString.format(prep.name_from_text(i)) for i in recs]
     newRecipes = prep.get_many_recipes(names, func)
     return newRecipes
 
@@ -473,13 +470,14 @@ def defineModel(prep):
                    activation='relu', name='shared_conv2')
     conv4 = Conv1D(sharedSize, 3, padding="same", dilation_rate=4,
                    activation='relu', name='shared_conv3')
-    conv5_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=8,
+    conv5_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=4,
                      activation='relu', name='conv_hist4')
-    conv5_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=1,
+    conv5_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=4,
                      activation='relu', name='conv_char4')
-
-    mp = MaxPooling1D(pool_size=4, strides=2)
-
+    conv6_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=4,
+                     activation='relu', name='conv_hist5')
+    conv6_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=4,
+                     activation='relu', name='conv_char5')
     char2 = conv2(charEmb)
     hist2 = conv2(histEmb)
 
@@ -491,13 +489,17 @@ def defineModel(prep):
     hist = Dropout(0.25)(conv4(hist))
     hist = BatchNormalization()(hist)
     hist = Add(name='shortcut_hist')([hist2, hist])
-    hist = mp(hist)
+    char = Add(name='shortcut_char')([char2, char])
 
-    char = Dropout(0.5)(conv5_c(char))
+    char = Dropout(0.25)(conv5_c(char))
     char = BatchNormalization()(char)
-    hist = Dropout(0.5)(conv5_h(hist))
+    hist = Dropout(0.25)(conv5_h(hist))
     hist = BatchNormalization()(hist)
 
+    char = Dropout(0.25)(conv6_c(char))
+    char = BatchNormalization()(char)
+    hist = Dropout(0.25)(conv6_h(hist))
+    hist = BatchNormalization()(hist)
     # final global max pooling layer keeps the # of params low
     hist = GlobalMaxPooling1D()(hist)
     char = GlobalMaxPooling1D()(char)
@@ -507,25 +509,9 @@ def defineModel(prep):
 
     # merge
     added = Add(name='added')([char, hist])
-    
-    outputs = []
-    losses = {}
-    lossWeights = {}
-    for i in range(0, prep.predDepth):
-        layerName = "char_"+str(i)
-        outputs.append(Dense(outSize, name=layerName,
-                             activation='softmax')(added))
-        lossWeights[layerName] = 0.8**i
-        losses[layerName] = 'categorical_crossentropy'
-    outputs.append(Dense(1, name="seen_before",
-                         activation='sigmoid')(added))
-    losses['seen_before'] = 'binary_crossentropy'
-    lossWeights['seen_before'] = 2
 
-    model = Model([charInp, histInp], outputs)
-    adam = Adam(lr=0.005)
-    model.compile(adam, loss=losses,
-                  loss_weights=lossWeights)
+    model = Model([charInp, histInp], added)
+    model = discriminator_mode(model, prep, mode="generator")
     print(model.summary())
     return model
 
@@ -548,10 +534,12 @@ def discriminator_mode(model, prep, mode="discrim"):
                          activation='sigmoid')(final_shared)]
         lossWeights = [1]
         losses = ['binary_crossentropy']
+        opt = Adam(lr=0.0001)
     else:
         outputs = []
         losses = {}
         lossWeights = {}
+        opt = Adam(lr=0.0005)
         for i in range(0, prep.predDepth):
             layerName = "char_"+str(i)
             outputs.append(Dense(len(prep.charDict), name=layerName,
@@ -564,6 +552,6 @@ def discriminator_mode(model, prep, mode="discrim"):
         lossWeights['seen_before'] = 1
 
     model = Model(model.input, outputs)
-    model.compile('adam', loss=losses,
+    model.compile(opt, loss=losses,
                   loss_weights=lossWeights)
     return model

@@ -505,7 +505,7 @@ def defineModel(prep):
     char = GlobalMaxPooling1D()(char)
 
     # final_dense
-    merged = Concatenate(name='merged')([char, hist], axis=-1)
+    merged = Concatenate(name='merged', axis=-1)([char, hist])
     merged = Dropout(0.25)(Dense(sharedSize)(merged))
     merged = Dense(sharedSize, name='final_dense')(merged)
 
@@ -538,7 +538,7 @@ def discriminator_mode(model, prep, mode="discrim"):
         outputs = []
         losses = {}
         lossWeights = {}
-        opt = Adam(lr=0.0001)
+        opt = Adam(lr=0.00005)
         for i in range(0, prep.predDepth):
             layerName = "char_"+str(i)
             outputs.append(Dense(len(prep.charDict), name=layerName,

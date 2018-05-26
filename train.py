@@ -18,7 +18,7 @@ from utilities import recipeGen, generateRecipes, defineModel
 np.random.seed(0)
 batchSize = 128
 numPer = 10
-epochs = 5
+epochs = 2
 logID = util.get_log_id("logs")
 util.set_up_logging()
 model_dir = "models/model_{}/".format(logID)
@@ -64,7 +64,7 @@ for metaEpoch in range(0, epochs):
     # RUN THE DISCRIMINATOR PORTION    
     model = load_model(model_dir+'charLevel_'+str(metaEpoch)+'.cnn')
     mod = Model(model.input, [model.get_layer("char_0").output])
-    mod.save('{}only_char_0.cnn'.format(model_dir))
+    mod.save('{}only_char_0_{}.cnn'.format(model_dir, str(metaEpoch)))
     func = mod.predict
 
     # get some validation data
@@ -73,21 +73,15 @@ for metaEpoch in range(0, epochs):
     genOrNotVal += np.ones((len(genVal),1)).tolist()
     Xval_disc, yval_disc = getRecipeBatch(recipesVal+genVal, prep, numPer,
                                           genOrNot=genOrNotVal)
-    genTrain = generateRecipes(recipesTrain, func, prep, num=10000)
+    genTrain = generateRecipes(recipesTrain, func, prep, num=30000)
     genOrNotTrain = np.zeros((len(recipesTrain),1)).tolist()
     genOrNotTrain += np.ones((len(genTrain),1)).tolist()
     Xtrain_disc, ytrain_disc = getRecipeBatch(recipesTrain+genTrain, prep,
                                               numPer, genOrNot=genOrNotTrain)
     
     model = discriminator_mode(model, prep, mode='discrim')
-    # set up early stopping each time we train a new model
-    callbacks = [
-        EarlyStopping(patience=1, monitor='val_loss'),
-        ModelCheckpoint(filepath=model_dir+'discrim_'+str(metaEpoch)+'.cnn',
-                        verbose=1, save_best_only=True,
-                        monitor='val_loss')
-    ]
+
     # train the model to discriminate between real and fake recipes
-    model.fit(Xtrain_disc, ytrain_disc, epochs=1, callbacks=callbacks,
+    model.fit(Xtrain_disc, ytrain_disc, epochs=1,
               validation_data=(Xval_disc, yval_disc))
     model = discriminator_mode(model, prep, mode='normal')

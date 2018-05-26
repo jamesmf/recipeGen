@@ -1,6 +1,6 @@
 from keras.preprocessing.sequence import pad_sequences
 from keras.layers import Input, Dense, Conv1D, Embedding, Flatten, GlobalMaxPooling1D
-from keras.layers import MaxPooling1D, Add, Dropout, BatchNormalization
+from keras.layers import MaxPooling1D, Add, Dropout, BatchNormalization, Concatenate
 from keras.models import Model, load_model
 from keras.optimizers import Adam
 from sklearn.utils import shuffle
@@ -474,12 +474,12 @@ def defineModel(prep):
                      activation='relu', name='conv_hist4')
     conv5_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=4,
                      activation='relu', name='conv_char4')
-    conv6_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=4,
+    conv6_h = Conv1D(sharedSize, 3, padding="same", dilation_rate=8,
                      activation='relu', name='conv_hist5')
-    conv6_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=4,
+    conv6_c = Conv1D(sharedSize, 3, padding="same", dilation_rate=8,
                      activation='relu', name='conv_char5')
-    char2 = conv2(charEmb)
-    hist2 = conv2(histEmb)
+    char2 = conv2(Dropout(0.25)(charEmb))
+    hist2 = conv2(Dropout(0.25)(histEmb))
 
     char = conv3(char2)
     hist = conv3(hist2)
@@ -504,13 +504,12 @@ def defineModel(prep):
     hist = GlobalMaxPooling1D()(hist)
     char = GlobalMaxPooling1D()(char)
 
-    char = Dense(sharedSize, activation='relu')(char)
-    hist = Dense(sharedSize, activation='relu')(hist)
+    # final_dense
+    merged = Concatenate(name='merged')([char, hist], axis=-1)
+    merged = Dropout(0.25)(Dense(sharedSize)(merged))
+    merged = Dense(sharedSize, name='final_dense')(merged)
 
-    # merge
-    added = Add(name='added')([char, hist])
-
-    model = Model([charInp, histInp], added)
+    model = Model([charInp, histInp], merged)
     model = discriminator_mode(model, prep, mode="generator")
     print(model.summary())
     return model
@@ -528,7 +527,7 @@ def discriminator_mode(model, prep, mode="discrim"):
     Returns:
         model (Model): model flipped to the new mode.
     """
-    final_shared = model.get_layer("added").output
+    final_shared = model.get_layer("final_dense").output
     if mode == "discrim":
         outputs = [Dense(1, name='gen_or_not',
                          activation='sigmoid')(final_shared)]
@@ -539,7 +538,7 @@ def discriminator_mode(model, prep, mode="discrim"):
         outputs = []
         losses = {}
         lossWeights = {}
-        opt = Adam(lr=0.0005)
+        opt = Adam(lr=0.0001)
         for i in range(0, prep.predDepth):
             layerName = "char_"+str(i)
             outputs.append(Dense(len(prep.charDict), name=layerName,

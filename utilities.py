@@ -453,7 +453,7 @@ def defineModel(prep):
         model (Model): keras Model compiled
     """
     sharedSize = 64
-    embeddingSize = 64
+    embeddingSize = 128
     outSize = len(prep.charDict)
     charInp = Input(shape=(prep.maxLen,))
     histInp = Input(shape=(prep.maxLenHist,), name='hist')
@@ -497,16 +497,14 @@ def defineModel(prep):
     hist = BatchNormalization()(hist)
 
     char = Dropout(0.25)(conv6_c(char))
-    char = BatchNormalization()(char)
     hist = Dropout(0.25)(conv6_h(hist))
-    hist = BatchNormalization()(hist)
     # final global max pooling layer keeps the # of params low
     hist = GlobalMaxPooling1D()(hist)
     char = GlobalMaxPooling1D()(char)
 
     # final_dense
     merged = Concatenate(name='merged', axis=-1)([char, hist])
-    merged = Dropout(0.25)(Dense(sharedSize)(merged))
+    merged = Dropout(0.25)(Dense(2*sharedSize)(merged))
     merged = Dense(sharedSize, name='final_dense')(merged)
 
     model = Model([charInp, histInp], merged)
@@ -533,12 +531,12 @@ def discriminator_mode(model, prep, mode="discrim"):
                          activation='sigmoid')(final_shared)]
         lossWeights = [1]
         losses = ['binary_crossentropy']
-        opt = Adam(lr=0.0001)
+        opt = Adam(lr=0.00005)
     else:
         outputs = []
         losses = {}
         lossWeights = {}
-        opt = Adam(lr=0.00005)
+        opt = Adam(lr=0.0001)
         for i in range(0, prep.predDepth):
             layerName = "char_"+str(i)
             outputs.append(Dense(len(prep.charDict), name=layerName,

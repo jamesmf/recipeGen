@@ -57,7 +57,7 @@ for metaEpoch in range(0, epochs):
     model.fit_generator(recipeGen(recipesTrain, func, prep, batchSize,
                                   numPer=numPer),
                         steps_per_epoch=numPer*int(len(recipesTrain)/batchSize)+1,
-                        epochs=150,
+                        epochs=500,
                         callbacks=callbacks,
                         validation_data=(Xval, yval))
 
@@ -73,7 +73,7 @@ for metaEpoch in range(0, epochs):
     genOrNotVal += np.ones((len(genVal),1)).tolist()
     Xval_disc, yval_disc = getRecipeBatch(recipesVal+genVal, prep, numPer,
                                           genOrNot=genOrNotVal)
-    genTrain = generateRecipes(recipesTrain, func, prep, num=30000)
+    genTrain = generateRecipes(recipesTrain, func, prep, num=10000)
     genOrNotTrain = np.zeros((len(recipesTrain),1)).tolist()
     genOrNotTrain += np.ones((len(genTrain),1)).tolist()
     Xtrain_disc, ytrain_disc = getRecipeBatch(recipesTrain+genTrain, prep,
